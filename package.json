@@ -1,0 +1,12 @@
+{
+  "name": "canvaslayer",
+  "version": "0.0.1",
+  "description": "A library for adding a <canvas> layer to a Google Maps JavaScript API v3 map and a small API for efficiently using it to visualize data using the 2d canvas API or WebGL.",
+  "main": "src/CanvasLayer.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Georadix/CanvasLayer.git"
+  },
+  "author": "Brendan Kenny",
+  "license": "Apache License, Version 2.0"
+}
