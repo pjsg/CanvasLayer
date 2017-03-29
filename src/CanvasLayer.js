@@ -110,7 +110,6 @@ function CanvasLayer(opt_options) {
   canvas.style.position = 'absolute';
   canvas.style.top = 0;
   canvas.style.left = 0;
-  canvas.style.pointerEvents = 'none';
 
   /**
    * The canvas element.
@@ -382,7 +381,7 @@ CanvasLayer.prototype.onAdd = function() {
   this.setPane_();
 
   this.resizeListener_ = google.maps.event.addListener(this.getMap(),
-      'resize', this.resizeFunction_);
+      'bounds_changed', this.resizeFunction_);
   this.centerListener_ = google.maps.event.addListener(this.getMap(),
       'center_changed', this.repositionFunction_);
 
