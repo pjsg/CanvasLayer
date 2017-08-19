@@ -1021,3 +1021,4 @@ SunLayer.prototype.initialize = function () {
       }
 
       this.setOptions({ updateHandler: simpleBindShim(this, update) });
+    };
