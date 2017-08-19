@@ -943,44 +943,53 @@ SunLayer.prototype.initialize = function () {
           };
 
           if (loadedCity) {
-            canSkipCanvasLoad = JSON.stringify(loadedCity) == JSON.stringify(newCity);
+            canSkipCanvasLoad = loadedCity.width == newCity.width &&
+                                loadedCity.height == newCity.height &&
+                                loadedCity.xOff == newCity.xOff &&
+                                loadedCity.yOff == newCity.yOff &&
+                                loadedCity.zoom == newCity.zoom;
           }
 
           if (!canSkipCanvasLoad) {
-            var cityLights = document.createElement('canvas');
-            cityLights.width = cWidth * 2;
-            cityLights.height = cHeight * 2;
+            if (loadedCity && loadedCity.pending > 0) {
+              loadedCity.onceLoaded = simpleBindShim(this, loadData);
+              console.log("Load in progress, deferring");
+            } else {
+              var cityLights = document.createElement('canvas');
+              cityLights.width = cWidth * 2;
+              cityLights.height = cHeight * 2;
 
-            // Now we want to load the images into this canvas
+              // Now we want to load the images into this canvas
 
-            var xMax = ((width / resolutionScale) + 255) / 256;
-            var yMax = ((height / resolutionScale) + 255) / 256;
+              var xMax = ((width / resolutionScale) + 255) / 256;
+              var yMax = ((height / resolutionScale) + 255) / 256;
 
-            var cityLightsContext = cityLights.getContext("2d");
+              var cityLightsContext = cityLights.getContext("2d");
 
-            var newTextureInfo = {
-                u_tl: [256 * Math.floor((tl.x * scale) / 256) / scale, 256 * Math.floor((tl.y * scale) / 256) / scale],
-                u_tl_scale: [scale / cityLights.width, scale / cityLights.height]
-            };
+              var newTextureInfo = {
+                  u_tl: [256 * Math.floor((tl.x * scale) / 256) / scale, 256 * Math.floor((tl.y * scale) / 256) / scale],
+                  u_tl_scale: [scale / cityLights.width, scale / cityLights.height]
+              };
 
-            newCity.pending = xMax * yMax;
-            newCity.textureInfo = newTextureInfo;
+              newCity.pending = xMax * yMax;
+              newCity.textureInfo = newTextureInfo;
 
-            for (var x = 0; x < xMax; x += 1) {
-              for (var y = 0; y < yMax; y += 1) {
-                getCityLightsImage("https://pskreporter.info/nighttile/" + zoom + "/" + (x + xOff) % scale + "/" + (scale - 1 - ((y + yOff) % scale)) + ".png",
-                    makeCallback(newCity, cityLights, cityLightsContext, x, y));
+              for (var x = 0; x < xMax; x += 1) {
+                for (var y = 0; y < yMax; y += 1) {
+                  getCityLightsImage("https://pskreporter.info/nighttile/" + zoom + "/" + (x + xOff) % scale + "/" + (scale - 1 - ((y + yOff) % scale)) + ".png",
+                      makeCallback(newCity, cityLights, cityLightsContext, x, y),
+                      makeErrorCallback(newCity, cityLights));
+                }
+              }
+
+              loadedCity = newCity;
+
+              if (!loadedTextureInfo) {
+                // Special case to avoid getting a webgl error about no texture being bound
+                dobindTexture(cityLights, newCity);
               }
             }
-
-            if (!loadedTextureInfo) {
-              // Special case to avoid getting a webgl error about no texture being bound
-              loadedCity = newCity;
-              dobindTexture(cityLights, newCity);
-            }
           }
-
-          loadedCity = newCity;
         }
       }
 
@@ -1007,22 +1016,43 @@ SunLayer.prototype.initialize = function () {
         textureUpdate = null;
       }
 
-      function makeCallback(newCity, canvas, context, x, y) {
+      function makeErrorCallback(newCity, canvas) {
         return function() {
           this.onload = null;
+          this.onerror = null;
           newCity.pending -= 1;
           if (newCity == loadedCity) {
-            context.drawImage(this, x * 256, y * 256);
             if (newCity.pending <= 0) {
               textureUpdate = function() { dobindTexture(canvas, newCity) };
+              if (newCity.onceLoaded) {
+                newCity.onceLoaded();
+              }
             }
           }
         }
       }
 
-      function getCityLightsImage(uri, onload) {
+      function makeCallback(newCity, canvas, context, x, y) {
+        return function() {
+          this.onload = null;
+          this.onerror = null;
+          newCity.pending -= 1;
+          if (newCity == loadedCity) {
+            context.drawImage(this, x * 256, y * 256);
+            if (newCity.pending <= 0) {
+              textureUpdate = function() { dobindTexture(canvas, newCity) };
+              if (newCity.onceLoaded) {
+                newCity.onceLoaded();
+              }
+            }
+          }
+        }
+      }
+
+      function getCityLightsImage(uri, onload, onerror) {
         var img = document.createElement('img');
         img.onload = onload;
+        img.onerror = onerror;
         img.crossOrigin = "";
         img.src = uri;
         return img;
