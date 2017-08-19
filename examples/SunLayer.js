@@ -572,6 +572,18 @@ SunLayer.prototype.setCityLights = function(state) {
   this.cityLights = state;
 }
 
+SunLayer.prototype.hideLights = function() {
+  this.cityLights = 0;
+}
+
+SunLayer.prototype.showLights = function() {
+  this.cityLights = 1;
+}
+
+SunLayer.prototype.isHiddenLights = function() {
+  return !this.cityLights;
+}
+
 
 SunLayer.prototype.initialize = function () {
       var gl;
@@ -843,8 +855,8 @@ SunLayer.prototype.initialize = function () {
       }
 
       function loadData() {
-        var mapProjection = map.getProjection();
-        var scale = Math.pow(2, map.zoom);
+        var mapProjection = this.map.getProjection();
+        var scale = Math.pow(2, this.map.zoom);
         var width = this.canvas.width;
         var height = this.canvas.height;
 
@@ -917,7 +929,7 @@ SunLayer.prototype.initialize = function () {
         var xOff = Math.floor(tl.x * scale / 256);
         var yOff = Math.floor(tl.y * scale / 256);
 
-        var zoom = map.getZoom();
+        var zoom = this.map.getZoom();
 
         if (zoom <= 8) {
           var canSkipCanvasLoad = 0;
@@ -935,7 +947,7 @@ SunLayer.prototype.initialize = function () {
           }
 
           if (!canSkipCanvasLoad) {
-            cityLights = document.createElement('canvas');
+            var cityLights = document.createElement('canvas');
             cityLights.width = cWidth * 2;
             cityLights.height = cHeight * 2;
 
@@ -956,13 +968,15 @@ SunLayer.prototype.initialize = function () {
 
             for (var x = 0; x < xMax; x += 1) {
               for (var y = 0; y < yMax; y += 1) {
-                getCityLightsImage("https://www.pskreporter.info/nighttile/" + zoom + "/" + (x + xOff) % scale + "/" + (scale - 1 - ((y + yOff) % scale)) + ".png",
+                getCityLightsImage("https://pskreporter.info/nighttile/" + zoom + "/" + (x + xOff) % scale + "/" + (scale - 1 - ((y + yOff) % scale)) + ".png",
                     makeCallback(newCity, cityLights, cityLightsContext, x, y));
               }
             }
 
             if (!loadedTextureInfo) {
-              dobindTexture(cityLights, newTextureInfo);
+              // Special case to avoid getting a webgl error about no texture being bound
+              loadedCity = newCity;
+              dobindTexture(cityLights, newCity);
             }
           }
 
@@ -970,23 +984,25 @@ SunLayer.prototype.initialize = function () {
         }
       }
 
-      function dobindTexture(canvas, newTextureInfo) {
-        var texture = gl.createTexture();
-        gl.bindTexture(gl.TEXTURE_2D, texture);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
-        gl.generateMipmap(gl.TEXTURE_2D);
-        gl.bindTexture(gl.TEXTURE_2D, null);
+      function dobindTexture(canvas, newCity) {
+        if (newCity === loadedCity) {
+          var texture = gl.createTexture();
+          gl.bindTexture(gl.TEXTURE_2D, texture);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
+          gl.generateMipmap(gl.TEXTURE_2D);
+          gl.bindTexture(gl.TEXTURE_2D, null);
 
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, texture);
-        gl.uniform1i(gl.getUniformLocation(pointProgram, 'u_cityLights'), 0);
-        
-        loadedTextureInfo = newTextureInfo;
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, texture);
+          gl.uniform1i(gl.getUniformLocation(pointProgram, 'u_cityLights'), 0);
+          
+          loadedTextureInfo = newCity.textureInfo;
 
-        gl.uniform2fv(gl.getUniformLocation(pointProgram, "u_tl"), loadedTextureInfo.u_tl);
-        gl.uniform2fv(gl.getUniformLocation(pointProgram, "u_tl_scale"), loadedTextureInfo.u_tl_scale);
+          gl.uniform2fv(gl.getUniformLocation(pointProgram, "u_tl"), loadedTextureInfo.u_tl);
+          gl.uniform2fv(gl.getUniformLocation(pointProgram, "u_tl_scale"), loadedTextureInfo.u_tl_scale);
+        }
 
         textureUpdate = null;
       }
@@ -994,10 +1010,12 @@ SunLayer.prototype.initialize = function () {
       function makeCallback(newCity, canvas, context, x, y) {
         return function() {
           this.onload = null;
-          context.drawImage(this, x * 256, y * 256);
           newCity.pending -= 1;
-          if (newCity.pending <= 0) {
-            textureUpdate = function() { dobindTexture(canvas, newCity.textureInfo) };
+          if (newCity == loadedCity) {
+            context.drawImage(this, x * 256, y * 256);
+            if (newCity.pending <= 0) {
+              textureUpdate = function() { dobindTexture(canvas, newCity) };
+            }
           }
         }
       }
@@ -1063,7 +1081,8 @@ SunLayer.prototype.initialize = function () {
 
         gl.clear(gl.COLOR_BUFFER_BIT);
 
-        var now = 1503341171 - 3 * 3600 + (Date.now() / 1000 - start) * 100;
+        //var now = 1503341171 - 3 * 3600 + (Date.now() / 1000 - start) * 100;
+        var now = Date.now() / 1000;
 
         var elements = getElements(now);
         if (Math.abs(now - elements.t0) > 4 * 3600) {
@@ -1071,7 +1090,7 @@ SunLayer.prototype.initialize = function () {
         }
         var situation = getSituation(new Date(now * 1000));
 
-        var bounds = map.getBounds();
+        var bounds = this.map.getBounds();
         if (bounds != loaddata_bounds) {
           loadData.apply(this);
           loaddata_bounds = bounds;
@@ -1090,9 +1109,9 @@ SunLayer.prototype.initialize = function () {
         var off = gl.getUniformLocation(pointProgram, "u_obscureFactor");
         gl.uniform1f(off, 0.5);
 
-        gl.uniform1f(gl.getUniformLocation(pointProgram, "u_cityLightsEnabled"), this.cityLights && map.getZoom() <= 8);
+        gl.uniform1f(gl.getUniformLocation(pointProgram, "u_cityLightsEnabled"), this.cityLights && this.map.getZoom() <= 8);
 
-        var mapProjection = map.getProjection();
+        var mapProjection = this.map.getProjection();
 
         /**
          * We need to create a transformation that takes world coordinate
@@ -1107,7 +1126,7 @@ SunLayer.prototype.initialize = function () {
         mapMatrix.set(pixelsToWebGLMatrix);
 
         // Scale to current zoom (worldCoords * 2^zoom)
-        var scale = Math.pow(2, map.zoom);
+        var scale = Math.pow(2, this.map.zoom);
         scaleMatrix(mapMatrix, scale, scale);
 
         // translate to current view (vector from topLeft to 0,0)

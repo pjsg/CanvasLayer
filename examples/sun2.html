@@ -13,9 +13,10 @@
     </style>
 
     <script src="https://maps.googleapis.com/maps/api/js"></script>
-    <script src="SunLayer.js"></script>
+    <script src="SunLayer2.js"></script>
 
     <script>
+      var map;
       var canvasLayer;
       var gl;
 
@@ -47,7 +48,7 @@
           ]
         };
         var mapDiv = document.getElementById('map-div');
-        var map = new google.maps.Map(mapDiv, mapOptions);
+        map = new google.maps.Map(mapDiv, mapOptions);
 
         // initialize the sunLayer
         var sunLayerOptions = {

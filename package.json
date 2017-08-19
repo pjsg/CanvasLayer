@@ -8,5 +8,9 @@
     "url": "git+https://github.com/Georadix/CanvasLayer.git"
   },
   "author": "Brendan Kenny",
-  "license": "Apache License, Version 2.0"
+  "license": "Apache License, Version 2.0",
+  "devDependencies": {
+    "babel-cli": "~6.26.0",
+    "babel-preset-env": "~1.6.0"
+  }
 }
