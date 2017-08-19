@@ -560,11 +560,17 @@ function SunLayer(opt_options) {
     this.setOptions(opt_options);
   }
 
+  this.cityLights = 1;
+
   this.initialize();
 }
 
 SunLayer.prototype = Object.create(CanvasLayer.prototype);
 SunLayer.prototype.constructor = SunLayer;
+
+SunLayer.prototype.setCityLights = function(state) {
+  this.cityLights = state;
+}
 
 
 SunLayer.prototype.initialize = function () {
@@ -575,6 +581,8 @@ SunLayer.prototype.initialize = function () {
       var updateTimeout = 0;
 
       var loaddata_bounds;
+      var textureUpdate = null;
+      var loadedCity = null;
 
       function simpleBindShim(thisArg, func) {
         return function() { func.apply(thisArg); };
@@ -679,35 +687,6 @@ SunLayer.prototype.initialize = function () {
         return result;
       }
 
-      function getAltitude(ll, situation) {
-        var fLatitude = ll.lat() * 3.141592 / 180.0;
-        var fLongitude = ll.lng() * 3.141592 / 180.0;
-
-        // Calculate difference (in minutes) from reference longitude.
-        var fDifference = (((fLongitude) * 180/Math.PI) * 4) / 60.0;
-
-        // Caculate solar time.
-        var fSolarTime = situation.fLocalTime + situation.fEquation + fDifference;
-
-        // Calculate hour angle.
-        var fHourAngle = (15 * (fSolarTime - 12)) * (Math.PI/180.0);
-
-        // Calculate current altitude.
-        var cc = Math.cos(situation.fDeclination) * Math.cos(fLatitude);
-        t = (Math.sin(situation.fDeclination) * Math.sin(fLatitude)) + (cc * Math.cos(fHourAngle));
-        var fAltitude = Math.asin(t);
-
-        return fAltitude;
-      }
-
-      var ll = new google.maps.LatLng(42, -78);
-      for (var now = 1503135870; now <= 1503135870 + 7200; now += 60) { 
-        var date = new Date(now * 1000);
-        var situation = getSituation(date);
-        var altitude = getAltitude(ll, situation);
-        console.log("At %s %d, alt = %.2f", date, date.getTime(), altitude);
-      }
-
       function createShaderProgram() {
         // create vertex shader
         //var vertexSrc = document.getElementById('pointVertexShader').text;
@@ -717,11 +696,18 @@ SunLayer.prototype.initialize = function () {
 
       uniform mat4 mapMatrix;
 
+      uniform float u_tl_x;
+      uniform float u_tl_y;
+      uniform vec2 u_tl_scale;
+
       varying vec2 v_latlng;
+      varying vec2 v_cityLightPos;
 
       void main() {
         // transform world coordinate by matrix uniform variable
         gl_Position = mapMatrix * worldCoord;
+
+        v_cityLightPos = u_tl_scale * vec2(worldCoord.x - u_tl_x, worldCoord.y - u_tl_y);
 
         // a constant size for points, regardless of zoom level
         //gl_PointSize = 3.;
@@ -738,6 +724,7 @@ SunLayer.prototype.initialize = function () {
       precision mediump float;
 
       varying vec2 v_latlng;
+      varying vec2 v_cityLightPos;
 
       uniform float u_tanf1;
       uniform float u_tanf2;
@@ -757,6 +744,9 @@ SunLayer.prototype.initialize = function () {
       uniform float u_fLocalTime;
 
       uniform float u_obscureFactor;
+      uniform float u_cityLightsEnabled;
+
+      uniform sampler2D u_cityLights;
 
       void main() {
         // set pixels in points to something that stands out
@@ -823,14 +813,25 @@ SunLayer.prototype.initialize = function () {
           obs = 0.;
         }
 
-        gl_FragColor = vec4(.0, .0, .0, u_obscureFactor * obs);
+        // Once we get into twilight, then people start to turn the lights on.
+        if (obs > 0.90 && u_cityLightsEnabled > 0.) {
+          float lightsAmnt = (obs - 0.90) * 7.0;
+          vec4 nightLight = texture2D(u_cityLights, v_cityLightPos);
+          float lum = ((nightLight.x + nightLight.y + nightLight.z) / 3. - 0.1) * lightsAmnt;
+          gl_FragColor = vec4(lum, lum, lum, u_obscureFactor * obs);
+        } else {
+          gl_FragColor = vec4(.0, .0, .0, u_obscureFactor * obs);
+        }
       }
         `;
         var fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
         gl.shaderSource(fragmentShader, fragmentSrc);
         gl.compileShader(fragmentShader);
 
-        console.log('Frag shader: ' + gl.getShaderInfoLog(fragmentShader));
+        var errorMessage = gl.getShaderInfoLog(fragmentShader);
+        if (errorMessage) {
+          console.log('Frag shader error: ' + errorMessage);
+        }
 
         // link shaders to create our program
         pointProgram = gl.createProgram();
@@ -850,15 +851,13 @@ SunLayer.prototype.initialize = function () {
         var tl = mapProjection.fromLatLngToPoint(this.getTopLeft());
         var br = { x:tl.x + width / resolutionScale / scale , y: tl.y + height / resolutionScale / scale };
 
-        if (tl.y < 0) {
-          tl.y = 0.05;
+        if (tl.y <= 0) {
+          tl.y = 0.05 / scale;
         }
         if (br.y > 256) {
           br.y = 256;
         }
 
-        // this data could be loaded from anywhere, but in this case we'll
-        // generate some random x,y coords in a world coordinate bounding box
         var rawData = new Float32Array(4 * height);
         var llData = new Float32Array(4 * height);
         var lngLeft = mapProjection.fromPointToLatLng(new google.maps.Point(tl.x, tl.y)).lng();
@@ -879,12 +878,6 @@ SunLayer.prototype.initialize = function () {
           llData[4 * i + 3] = lngRight;
 
           point_count = i * 2;
-        }
-
-        console.log("Point count = %d", point_count);
-
-        for (var i = 0; i < 3; i++) {
-          console.log("%10.6f %10.6f %10.6f %10.6f", rawData[4 * i], rawData[4 * i + 1], rawData[4 * i + 2], rawData[4 * i + 3]);
         }
 
         // create webgl buffer, bind it, and load rawData into it
@@ -910,6 +903,99 @@ SunLayer.prototype.initialize = function () {
 
         // tell webgl how buffer is laid out (pairs of x,y coords)
         gl.vertexAttribPointer(attributeLoc, 2, gl.FLOAT, false, 0, 0);
+
+        // load the cityLights texture
+
+        var cWidth;
+        for (cWidth = 128; cWidth < (width / resolutionScale) + 255; cWidth *= 2) {
+        }
+
+        var cHeight;
+        for (cHeight = 128; cHeight < (height / resolutionScale) + 255; cHeight *= 2) {
+        }
+
+        var xOff = Math.floor(tl.x * scale / 256);
+        var yOff = Math.floor(tl.y * scale / 256);
+
+        var zoom = map.getZoom();
+
+        if (zoom <= 8) {
+          var canSkipCanvasLoad = 0;
+
+          var newCity = {
+            width: cWidth * 2,
+            height: cHeight * 2,
+            xOff: xOff,
+            yOff: yOff,
+            zoom: zoom
+          };
+
+          if (loadedCity) {
+            canSkipCanvasLoad = JSON.stringify(loadedCity) == JSON.stringify(newCity);
+          }
+
+          if (!canSkipCanvasLoad) {
+            cityLights = document.createElement('canvas');
+            cityLights.width = cWidth * 2;
+            cityLights.height = cHeight * 2;
+
+            // Now we want to load the images into this canvas
+
+            var xMax = ((width / resolutionScale) + 255) / 256;
+            var yMax = ((height / resolutionScale) + 255) / 256;
+
+            var cityLightsContext = cityLights.getContext("2d");
+
+            for (var x = 0; x < xMax; x += 1) {
+              for (var y = 0; y < yMax; y += 1) {
+                getCityLightsImage("https://www.pskreporter.info/nighttile/" + zoom + "/" + (x + xOff) % scale + "/" + (scale - 1 - ((y + yOff) % scale)) + ".png",
+                    makeCallback(cityLights, cityLightsContext, x, y));
+              }
+            }
+            dobindTexture(cityLights);
+          }
+
+          loadedCity = newCity;
+
+          var u_tl_x = 256 * Math.floor((tl.x * scale) / 256) / scale;
+          gl.uniform1f(gl.getUniformLocation(pointProgram, "u_tl_x"), u_tl_x);
+          var u_tl_y = 256 * Math.floor((tl.y * scale) / 256) / scale;
+          gl.uniform1f(gl.getUniformLocation(pointProgram, "u_tl_y"), u_tl_y);
+          gl.uniform2f(gl.getUniformLocation(pointProgram, "u_tl_scale"), scale / cityLights.width, scale / cityLights.height);
+        }
+      }
+
+      function dobindTexture(canvas) {
+        var d = document.getElementById("map-div");
+        d.appendChild(canvas);
+        var texture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.uniform1i(gl.getUniformLocation(pointProgram, 'u_cityLights'), 0);
+        
+        textureUpdate = null;
+      }
+
+      function makeCallback(canvas, context, x, y) {
+        return function() {
+          context.drawImage(this, x * 256, y * 256);
+          textureUpdate = function() { dobindTexture(canvas) };
+        }
+      }
+
+      function getCityLightsImage(uri, onload) {
+        var img = document.createElement('img');
+        img.onload = onload;
+        img.crossOrigin = "";
+        img.src = uri;
+        return img;
       }
 
       function resize() {
@@ -959,6 +1045,10 @@ SunLayer.prototype.initialize = function () {
           updateTimeout = 0;
         }
 
+        if (textureUpdate) {
+          textureUpdate();
+        }
+
         gl.clear(gl.COLOR_BUFFER_BIT);
 
         var now = 1503341171 - 3 * 3600 + (Date.now() / 1000 - start) * 100;
@@ -987,6 +1077,8 @@ SunLayer.prototype.initialize = function () {
 
         var off = gl.getUniformLocation(pointProgram, "u_obscureFactor");
         gl.uniform1f(off, 0.5);
+
+        gl.uniform1f(gl.getUniformLocation(pointProgram, "u_cityLightsEnabled"), this.cityLights && map.getZoom() <= 8);
 
         var mapProjection = map.getProjection();
 
