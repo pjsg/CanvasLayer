@@ -610,7 +610,7 @@ SunLayer.prototype.initialize = function () {
     return result;
   }
 
-  gl = this.canvas.getContext('experimental-webgl');
+  gl = this.canvas.getContext('webgl') || this.canvas.getContext('experimental-webgl');
 
   createShaderProgram();
 
