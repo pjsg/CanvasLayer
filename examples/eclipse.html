@@ -24,6 +24,8 @@
       var point_count = 0;
       var updateTimeout = 0;
 
+      var loaddata_bounds;
+
       var bessel = {
         "tanf1": 0.0046222,
         "tanf2": 0.0045992,
@@ -304,7 +306,11 @@
 
         var elements = getElements(now);
         if (Math.abs(now - elements.t0) < 3600 * 3) {
-          loadData();
+          var bounds = map.getBounds();
+          if (bounds != loaddata_bounds) {
+            loadData();
+            loaddata_bounds = bounds;
+          }
 
           for (var attr in elements) {
             var off = gl.getUniformLocation(pointProgram, "u_" + attr);
