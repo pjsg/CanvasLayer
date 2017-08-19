@@ -583,6 +583,7 @@ SunLayer.prototype.initialize = function () {
       var loaddata_bounds;
       var textureUpdate = null;
       var loadedCity = null;
+      var loadedTextureInfo = null;
 
       function simpleBindShim(thisArg, func) {
         return function() { func.apply(thisArg); };
@@ -696,8 +697,7 @@ SunLayer.prototype.initialize = function () {
 
       uniform mat4 mapMatrix;
 
-      uniform float u_tl_x;
-      uniform float u_tl_y;
+      uniform vec2 u_tl;
       uniform vec2 u_tl_scale;
 
       varying vec2 v_latlng;
@@ -707,7 +707,7 @@ SunLayer.prototype.initialize = function () {
         // transform world coordinate by matrix uniform variable
         gl_Position = mapMatrix * worldCoord;
 
-        v_cityLightPos = u_tl_scale * vec2(worldCoord.x - u_tl_x, worldCoord.y - u_tl_y);
+        v_cityLightPos = u_tl_scale * (vec2(worldCoord.x, worldCoord.y) - u_tl);
 
         // a constant size for points, regardless of zoom level
         //gl_PointSize = 3.;
@@ -946,28 +946,31 @@ SunLayer.prototype.initialize = function () {
 
             var cityLightsContext = cityLights.getContext("2d");
 
+            var newTextureInfo = {
+                u_tl: [256 * Math.floor((tl.x * scale) / 256) / scale, 256 * Math.floor((tl.y * scale) / 256) / scale],
+                u_tl_scale: [scale / cityLights.width, scale / cityLights.height]
+            };
+
+            newCity.pending = xMax * yMax;
+            newCity.textureInfo = newTextureInfo;
+
             for (var x = 0; x < xMax; x += 1) {
               for (var y = 0; y < yMax; y += 1) {
                 getCityLightsImage("https://www.pskreporter.info/nighttile/" + zoom + "/" + (x + xOff) % scale + "/" + (scale - 1 - ((y + yOff) % scale)) + ".png",
-                    makeCallback(cityLights, cityLightsContext, x, y));
+                    makeCallback(newCity, cityLights, cityLightsContext, x, y));
               }
             }
-            dobindTexture(cityLights);
+
+            if (!loadedTextureInfo) {
+              dobindTexture(cityLights, newTextureInfo);
+            }
           }
 
           loadedCity = newCity;
-
-          var u_tl_x = 256 * Math.floor((tl.x * scale) / 256) / scale;
-          gl.uniform1f(gl.getUniformLocation(pointProgram, "u_tl_x"), u_tl_x);
-          var u_tl_y = 256 * Math.floor((tl.y * scale) / 256) / scale;
-          gl.uniform1f(gl.getUniformLocation(pointProgram, "u_tl_y"), u_tl_y);
-          gl.uniform2f(gl.getUniformLocation(pointProgram, "u_tl_scale"), scale / cityLights.width, scale / cityLights.height);
         }
       }
 
-      function dobindTexture(canvas) {
-        var d = document.getElementById("map-div");
-        d.appendChild(canvas);
+      function dobindTexture(canvas, newTextureInfo) {
         var texture = gl.createTexture();
         gl.bindTexture(gl.TEXTURE_2D, texture);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
@@ -980,13 +983,22 @@ SunLayer.prototype.initialize = function () {
         gl.bindTexture(gl.TEXTURE_2D, texture);
         gl.uniform1i(gl.getUniformLocation(pointProgram, 'u_cityLights'), 0);
         
+        loadedTextureInfo = newTextureInfo;
+
+        gl.uniform2fv(gl.getUniformLocation(pointProgram, "u_tl"), loadedTextureInfo.u_tl);
+        gl.uniform2fv(gl.getUniformLocation(pointProgram, "u_tl_scale"), loadedTextureInfo.u_tl_scale);
+
         textureUpdate = null;
       }
 
-      function makeCallback(canvas, context, x, y) {
+      function makeCallback(newCity, canvas, context, x, y) {
         return function() {
+          this.onload = null;
           context.drawImage(this, x * 256, y * 256);
-          textureUpdate = function() { dobindTexture(canvas) };
+          newCity.pending -= 1;
+          if (newCity.pending <= 0) {
+            textureUpdate = function() { dobindTexture(canvas, newCity.textureInfo) };
+          }
         }
       }
 
