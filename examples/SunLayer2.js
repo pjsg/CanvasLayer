@@ -532,18 +532,30 @@ function SunLayer(opt_options) {
   };
   CanvasLayer.call(this, canvasLayerOptions);
 
+  this.cityLights = 1;
+
+  this.getCurrentTime = function () {
+    return Date.now() / 1000;
+  };
+
   // set provided options, if any
   if (opt_options) {
     this.setOptions(opt_options);
   }
-
-  this.cityLights = 1;
 
   this.initialize();
 }
 
 SunLayer.prototype = Object.create(CanvasLayer.prototype);
 SunLayer.prototype.constructor = SunLayer;
+
+SunLayer.prototype.setOptions = function (opt_options) {
+  CanvasLayer.prototype.setOptions.call(this, opt_options);
+
+  if (opt_options.currentTime) {
+    this.setCurrentTime(opt_options.currentTime);
+  }
+};
 
 SunLayer.prototype.setCityLights = function (state) {
   this.cityLights = state;
@@ -559,6 +571,10 @@ SunLayer.prototype.showLights = function () {
 
 SunLayer.prototype.isHiddenLights = function () {
   return !this.cityLights;
+};
+
+SunLayer.prototype.setCurrentTime = function (fn) {
+  this.getCurrentTime = fn;
 };
 
 SunLayer.prototype.initialize = function () {
@@ -612,9 +628,13 @@ SunLayer.prototype.initialize = function () {
 
   gl = this.canvas.getContext('webgl') || this.canvas.getContext('experimental-webgl');
 
+  if (!gl) {
+    return;
+  }
+
   createShaderProgram();
 
-  var start = Date.now() / 1000;
+  var start = this.getCurrentTime();
 
   var pixelsToWebGLMatrix = new Float32Array(16);
   var mapMatrix = new Float32Array(16);
@@ -672,7 +692,7 @@ SunLayer.prototype.initialize = function () {
 
     // create fragment shader
     //var fragmentSrc = document.getElementById('pointFragmentShader').text;
-    var fragmentSrc = '\n      precision mediump float;\n\n      varying vec2 v_latlng;\n      varying vec2 v_cityLightPos;\n\n      uniform float u_tanf1;\n      uniform float u_tanf2;\n      uniform float u_x;\n      uniform float u_y;\n      uniform float u_d;\n      uniform float u_l1;\n      uniform float u_l2;\n      uniform float u_mu;\n      uniform float u_deltat;\n      uniform float u_t0;\n      uniform float u_k1;\n      uniform float u_k2;\n\n      uniform float u_fEquation;\n      uniform float u_fDeclination;\n      uniform float u_fLocalTime;\n\n      uniform float u_obscureFactor;\n      uniform float u_cityLightsEnabled;\n\n      uniform sampler2D u_cityLights;\n\n      void main() {\n        // set pixels in points to something that stands out\n        float obs = 0.;\n\n        if (u_deltat > 0.) {\n          float dr = u_d * 3.1415926 / 180.;\n\n          float lng1 = v_latlng.y + 1.002738 * (15. * u_deltat) / 3600.;\n          float H = (u_mu + lng1) * 3.1415926 / 180.;\n          float latr = v_latlng.x * 3.1415926 / 180.;\n          float X = cos(latr) * sin(H);\n          float Y = sin(latr) * cos(dr) - cos(latr) * sin(dr) * cos(H);\n          float Z = sin(latr) * sin(dr) - cos(latr) * cos(dr) * cos(H);\n\n          float d2 = (u_x - X) * (u_x - X) + (u_y - Y) * (u_y - Y);\n\n          float L1 = u_l1 - Z * u_tanf1;\n          float L2 = u_l2 - Z * u_tanf2;\n\n          float d = sqrt(d2);\n\n          if (d < L1) { // && Z < .0) {\n            if (d < abs(L2)) {\n              d = abs(L2);\n            }\n            obs = (L1 - d) / (L1 + L2);\n          }\n        }\n\n        float fLatitude = v_latlng.x * 3.1415926 / 180.0;\n        float fLongitude = v_latlng.y * 3.1415926 / 180.0;\n\n        // Calculate difference (in minutes) from reference longitude.\n        float fDifference = (((fLongitude) * 180./3.1415926) * 4.) / 60.0;\n\n        // Caculate solar time.\n        float fSolarTime = u_fLocalTime + u_fEquation + fDifference;\n\n        // Calculate hour angle.\n        float fHourAngle = (15. * (fSolarTime - 12.)) * (3.1415926/180.0);\n\n        // Calculate current altitude.\n        float cc = cos(u_fDeclination) * cos(fLatitude);\n        float t = (sin(u_fDeclination) * sin(fLatitude)) + (cc * cos(fHourAngle));\n        // This turns out to be necessary as sometimes (due to FP errors), the input to\n        // asin can be out of range, and then the shader aborts and it doesn\'t render the pixel\n        if (t > 1.) {\n          t = 1.;\n        } else if (t < -1.) {\n          t = -1.;\n        }\n        float fAltitude = asin(t);\n\n        if (fAltitude < -0.018) {\n          obs = 1.;\n        } else if (fAltitude < 0.018) {\n          obs =  obs + (0.018 - fAltitude) / 0.036;\n        }\n\n        if (obs > 1.) {\n          obs = 1.;\n        } else if (obs < 0.) {\n          obs = 0.;\n        }\n\n        // Once we get into twilight, then people start to turn the lights on.\n        if (obs > 0.90 && u_cityLightsEnabled > 0.) {\n          float lightsAmnt = (obs - 0.90) * 7.0;\n          vec4 nightLight = texture2D(u_cityLights, v_cityLightPos);\n          float lum = ((nightLight.x + nightLight.y + nightLight.z) / 3. - 0.1) * lightsAmnt;\n          gl_FragColor = vec4(lum, lum, lum, u_obscureFactor * obs);\n        } else {\n          gl_FragColor = vec4(.0, .0, .0, u_obscureFactor * obs);\n        }\n      }\n        ';
+    var fragmentSrc = '\n      precision mediump float;\n\n      varying vec2 v_latlng;\n      varying vec2 v_cityLightPos;\n\n      uniform float u_tanf1;\n      uniform float u_tanf2;\n      uniform float u_x;\n      uniform float u_y;\n      uniform float u_d;\n      uniform float u_l1;\n      uniform float u_l2;\n      uniform float u_mu;\n      uniform float u_deltat;\n      uniform float u_t0;\n      uniform float u_k1;\n      uniform float u_k2;\n\n      uniform float u_fEquation;\n      uniform float u_fDeclination;\n      uniform float u_fLocalTime;\n\n      uniform float u_obscureFactor;\n      uniform float u_cityLightsEnabled;\n\n      uniform sampler2D u_cityLights;\n\n      void main() {\n        // set pixels in points to something that stands out\n        float obs = 0.;\n        float overrideObs = 0.;\n\n        if (u_deltat > 0.) {\n          float dr = u_d * 3.1415926 / 180.;\n\n          float lng1 = v_latlng.y + 1.002738 * (15. * u_deltat) / 3600.;\n          float H = (u_mu + lng1) * 3.1415926 / 180.;\n          float latr = v_latlng.x * 3.1415926 / 180.;\n          float X = cos(latr) * sin(H);\n          float Y = sin(latr) * cos(dr) - cos(latr) * sin(dr) * cos(H);\n          float Z = sin(latr) * sin(dr) - cos(latr) * cos(dr) * cos(H);\n\n          float d2 = (u_x - X) * (u_x - X) + (u_y - Y) * (u_y - Y);\n\n          float L1 = u_l1 - Z * u_tanf1;\n          float L2 = u_l2 - Z * u_tanf2;\n\n          float d = sqrt(d2);\n\n          if (d < L1) { // && Z < .0) {\n            if (d < abs(L2)) {\n              d = abs(L2);\n              overrideObs = 1.;\n            }\n            obs = (L1 - d) / (L1 + L2);\n            float cutoff = 0.95;\n            if (obs > cutoff) {\n              overrideObs = (obs - cutoff) * (1. - cutoff * u_obscureFactor) / (1. - cutoff) + cutoff * u_obscureFactor;\n            }\n          }\n        }\n\n        float fLatitude = v_latlng.x * 3.1415926 / 180.0;\n        float fLongitude = v_latlng.y * 3.1415926 / 180.0;\n\n        // Calculate difference (in minutes) from reference longitude.\n        float fDifference = (((fLongitude) * 180./3.1415926) * 4.) / 60.0;\n\n        // Caculate solar time.\n        float fSolarTime = u_fLocalTime + u_fEquation + fDifference;\n\n        // Calculate hour angle.\n        float fHourAngle = (15. * (fSolarTime - 12.)) * (3.1415926/180.0);\n\n        // Calculate current altitude.\n        float cc = cos(u_fDeclination) * cos(fLatitude);\n        float t = (sin(u_fDeclination) * sin(fLatitude)) + (cc * cos(fHourAngle));\n        // This turns out to be necessary as sometimes (due to FP errors), the input to\n        // asin can be out of range, and then the shader aborts and it doesn\'t render the pixel\n        if (t > 1.) {\n          t = 1.;\n        } else if (t < -1.) {\n          t = -1.;\n        }\n        float fAltitude = asin(t);\n\n        if (fAltitude < -0.018) {\n          obs = 1.;\n        } else if (fAltitude < 0.018) {\n          obs =  1. - (1. - obs) * (1. - (0.018 - fAltitude) / 0.036);\n        }\n        if (fAltitude < 0.) {\n          overrideObs = 0.;\n        }\n\n        if (obs > 1.) {\n          obs = 1.;\n        } else if (obs < 0.) {\n          obs = 0.;\n        }\n\n        // Once we get into twilight, then people start to turn the lights on.\n        if (obs > 0.90 && u_cityLightsEnabled > 0.) {\n          float lightsAmnt = (obs - 0.90) * 7.0;\n          vec4 nightLight = texture2D(u_cityLights, v_cityLightPos);\n          float lum = ((nightLight.x + nightLight.y + nightLight.z) / 3. - 0.1) * lightsAmnt;\n          gl_FragColor = vec4(lum, lum, lum, max(overrideObs, u_obscureFactor * obs));\n        } else {\n          gl_FragColor = vec4(.0, .0, .0, max(overrideObs, u_obscureFactor * obs));\n        }\n      }\n        ';
     var fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
     gl.shaderSource(fragmentShader, fragmentSrc);
     gl.compileShader(fragmentShader);
@@ -940,7 +960,7 @@ SunLayer.prototype.initialize = function () {
     gl.clear(gl.COLOR_BUFFER_BIT);
 
     //var now = 1503341171 - 3 * 3600 + (Date.now() / 1000 - start) * 100;
-    var now = Date.now() / 1000;
+    var now = this.getCurrentTime();
 
     var elements = getElements(now);
     if (Math.abs(now - elements.t0) > 4 * 3600) {
@@ -965,7 +985,7 @@ SunLayer.prototype.initialize = function () {
     }
 
     var off = gl.getUniformLocation(pointProgram, "u_obscureFactor");
-    gl.uniform1f(off, 0.5);
+    gl.uniform1f(off, 0.65);
 
     gl.uniform1f(gl.getUniformLocation(pointProgram, "u_cityLightsEnabled"), this.cityLights && this.map.getZoom() <= 8);
 

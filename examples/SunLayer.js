@@ -555,18 +555,28 @@ function SunLayer(opt_options) {
   };
   CanvasLayer.call(this, canvasLayerOptions);
 
+  this.cityLights = 1;
+
+  this.getCurrentTime = function() { return Date.now() / 1000 };
+
   // set provided options, if any
   if (opt_options) {
     this.setOptions(opt_options);
   }
-
-  this.cityLights = 1;
 
   this.initialize();
 }
 
 SunLayer.prototype = Object.create(CanvasLayer.prototype);
 SunLayer.prototype.constructor = SunLayer;
+
+SunLayer.prototype.setOptions = function (opt_options) {
+  CanvasLayer.prototype.setOptions.call(this, opt_options);
+
+  if (opt_options.currentTime) {
+    this.setCurrentTime(opt_options.currentTime);
+  }
+}
 
 SunLayer.prototype.setCityLights = function(state) {
   this.cityLights = state;
@@ -582,6 +592,10 @@ SunLayer.prototype.showLights = function() {
 
 SunLayer.prototype.isHiddenLights = function() {
   return !this.cityLights;
+}
+
+SunLayer.prototype.setCurrentTime = function(fn) {
+  this.getCurrentTime = fn;
 }
 
 
@@ -634,9 +648,13 @@ SunLayer.prototype.initialize = function () {
 
       gl = this.canvas.getContext('webgl') || this.canvas.getContext('experimental-webgl');
 
+      if (!gl) {
+        return;
+      }
+
       createShaderProgram();
 
-      var start = Date.now() / 1000;
+      var start = this.getCurrentTime();
 
       var pixelsToWebGLMatrix = new Float32Array(16);
       var mapMatrix = new Float32Array(16);
@@ -763,6 +781,7 @@ SunLayer.prototype.initialize = function () {
       void main() {
         // set pixels in points to something that stands out
         float obs = 0.;
+        float overrideObs = 0.;
 
         if (u_deltat > 0.) {
           float dr = u_d * 3.1415926 / 180.;
@@ -784,8 +803,13 @@ SunLayer.prototype.initialize = function () {
           if (d < L1) { // && Z < .0) {
             if (d < abs(L2)) {
               d = abs(L2);
+              overrideObs = 1.;
             }
             obs = (L1 - d) / (L1 + L2);
+            float cutoff = 0.95;
+            if (obs > cutoff) {
+              overrideObs = (obs - cutoff) * (1. - cutoff * u_obscureFactor) / (1. - cutoff) + cutoff * u_obscureFactor;
+            }
           }
         }
 
@@ -816,7 +840,10 @@ SunLayer.prototype.initialize = function () {
         if (fAltitude < -0.018) {
           obs = 1.;
         } else if (fAltitude < 0.018) {
-          obs =  obs + (0.018 - fAltitude) / 0.036;
+          obs =  1. - (1. - obs) * (1. - (0.018 - fAltitude) / 0.036);
+        }
+        if (fAltitude < 0.) {
+          overrideObs = 0.;
         }
 
         if (obs > 1.) {
@@ -830,9 +857,9 @@ SunLayer.prototype.initialize = function () {
           float lightsAmnt = (obs - 0.90) * 7.0;
           vec4 nightLight = texture2D(u_cityLights, v_cityLightPos);
           float lum = ((nightLight.x + nightLight.y + nightLight.z) / 3. - 0.1) * lightsAmnt;
-          gl_FragColor = vec4(lum, lum, lum, u_obscureFactor * obs);
+          gl_FragColor = vec4(lum, lum, lum, max(overrideObs, u_obscureFactor * obs));
         } else {
-          gl_FragColor = vec4(.0, .0, .0, u_obscureFactor * obs);
+          gl_FragColor = vec4(.0, .0, .0, max(overrideObs, u_obscureFactor * obs));
         }
       }
         `;
@@ -1112,7 +1139,7 @@ SunLayer.prototype.initialize = function () {
         gl.clear(gl.COLOR_BUFFER_BIT);
 
         //var now = 1503341171 - 3 * 3600 + (Date.now() / 1000 - start) * 100;
-        var now = Date.now() / 1000;
+        var now = this.getCurrentTime();
 
         var elements = getElements(now);
         if (Math.abs(now - elements.t0) > 4 * 3600) {
@@ -1137,7 +1164,7 @@ SunLayer.prototype.initialize = function () {
         }
 
         var off = gl.getUniformLocation(pointProgram, "u_obscureFactor");
-        gl.uniform1f(off, 0.5);
+        gl.uniform1f(off, 0.65);
 
         gl.uniform1f(gl.getUniformLocation(pointProgram, "u_cityLightsEnabled"), this.cityLights && this.map.getZoom() <= 8);
 
