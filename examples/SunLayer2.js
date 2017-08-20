@@ -712,6 +712,9 @@ SunLayer.prototype.initialize = function () {
   }
 
   function loadData() {
+    if (!this.map) {
+      return;
+    }
     var mapProjection = this.map.getProjection();
     var scale = Math.pow(2, this.map.zoom);
     var width = this.canvas.width;
@@ -951,6 +954,9 @@ SunLayer.prototype.initialize = function () {
     if (updateTimeout) {
       clearTimeout(updateTimeout);
       updateTimeout = 0;
+    }
+    if (!this.map) {
+      return;
     }
 
     if (textureUpdate) {
