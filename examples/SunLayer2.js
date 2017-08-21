@@ -589,6 +589,8 @@ SunLayer.prototype.initialize = function () {
   var loadedCity = null;
   var loadedTextureInfo = null;
 
+  var canvasId = 0;
+
   function simpleBindShim(thisArg, func) {
     return function () {
       func.apply(thisArg);
@@ -807,16 +809,19 @@ SunLayer.prototype.initialize = function () {
       if (!canSkipCanvasLoad) {
         if (loadedCity && loadedCity.pending > 0) {
           loadedCity.onceLoaded = simpleBindShim(this, loadData);
-          console.log("Load in progress, deferring");
+          //console.log("Load in progress, deferring");
         } else {
+          canvasId += 1;
+          //console.log("Ceating new texture canvas id = %d", canvasId);
+          newCity.id = canvasId;
           var cityLights = document.createElement('canvas');
           cityLights.width = cWidth * 2;
           cityLights.height = cHeight * 2;
 
           // Now we want to load the images into this canvas
 
-          var xMax = (width / resolutionScale + 255) / 256;
-          var yMax = (height / resolutionScale + 255) / 256;
+          var xMax = Math.ceil((width / resolutionScale + 255) / 256);
+          var yMax = Math.ceil((height / resolutionScale + 255) / 256);
 
           var cityLightsContext = cityLights.getContext("2d");
 
@@ -827,6 +832,7 @@ SunLayer.prototype.initialize = function () {
 
           newCity.pending = xMax * yMax;
           newCity.textureInfo = newTextureInfo;
+          //console.log("Images pending = %d (%d x %d)", newCity.pending, xMax, yMax);
 
           for (var x = 0; x < xMax; x += 1) {
             for (var y = 0; y < yMax; y += 1) {
@@ -873,6 +879,7 @@ SunLayer.prototype.initialize = function () {
       this.onload = null;
       this.onerror = null;
       newCity.pending -= 1;
+      //console.log("Error Callback for canvas %d (%d left), image %d,%d", newCity.id, newCity.pending, x, y);
       if (newCity == loadedCity) {
         if (newCity.pending <= 0) {
           textureUpdate = function textureUpdate() {
@@ -891,9 +898,11 @@ SunLayer.prototype.initialize = function () {
       this.onload = null;
       this.onerror = null;
       newCity.pending -= 1;
+      //console.log("Callback for canvas %d (%d left), image %d,%d", newCity.id, newCity.pending, x, y);
       if (newCity == loadedCity) {
         context.drawImage(this, x * 256, y * 256);
         if (newCity.pending <= 0) {
+          //console.log("Finished loading canvas id = %d", newCity.id);
           textureUpdate = function textureUpdate() {
             dobindTexture(canvas, newCity);
           };
