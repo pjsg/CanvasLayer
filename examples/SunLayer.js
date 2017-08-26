@@ -564,7 +564,24 @@ function SunLayer(opt_options) {
     this.setOptions(opt_options);
   }
 
+  if (window.location.hostname && window.location.hostname.search("pskreporter.info") == -1) {
+    this.siteprefix = "https://pskreporter.info";
+  } else {
+    this.siteprefix = "";
+  }
+
   this.initialize();
+}
+
+SunLayer.supported = function() {
+  var canvas = document.createElement('canvas');
+  var gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+  if (!gl) {
+    return 0;
+  }
+
+  // Maybe add more checks here
+  return 1;
 }
 
 SunLayer.prototype = Object.create(CanvasLayer.prototype);
@@ -738,6 +755,7 @@ SunLayer.prototype.initialize = function () {
       void main() {
         // transform world coordinate by matrix uniform variable
         gl_Position = mapMatrix * worldCoord;
+        gl_PointSize = 1.0;
 
         v_cityLightPos = u_tl_scale * (vec2(worldCoord.x, worldCoord.y) - u_tl);
 
@@ -883,6 +901,10 @@ SunLayer.prototype.initialize = function () {
         gl.useProgram(pointProgram);
       }
 
+      function centerCoord(v, scale) {
+        return (Math.floor(v * scale) + 0.5) / (scale);
+      }
+
       function loadData() {
         if (!this.map) {
           return;
@@ -896,13 +918,17 @@ SunLayer.prototype.initialize = function () {
         var br = { x:tl.x + width / resolutionScale / scale , y: tl.y + height / resolutionScale / scale };
 
         if (tl.y <= 0) {
-          tl.y = 0.05 / scale;
+          tl.y = 0.0;
         }
         if (br.y > 256) {
           br.y = 256;
         }
+        tl.y = centerCoord(tl.y, resolutionScale * scale);
+        tl.x = centerCoord(tl.x, resolutionScale * scale);
+        br.x = centerCoord(br.x, resolutionScale * scale);
 
         var rawData = new Float32Array(4 * height);
+        //rawData = new Float32Array(4 * height);
         var llData = new Float32Array(4 * height);
         var lngLeft = mapProjection.fromPointToLatLng(new google.maps.Point(tl.x, tl.y)).lng();
         var lngRight = lngLeft + width / resolutionScale / scale / 256 * 360;
@@ -1012,7 +1038,7 @@ SunLayer.prototype.initialize = function () {
 
               for (var x = 0; x < xMax; x += 1) {
                 for (var y = 0; y < yMax; y += 1) {
-                  getCityLightsImage("https://pskreporter.info/nighttile/" + zoom + "/" + (x + xOff) % scale + "/" + (scale - 1 - ((y + yOff) % scale)) + ".png",
+                  getCityLightsImage(this.siteprefix + "/nighttile/" + zoom + "/" + (x + xOff) % scale + "/" + (scale - 1 - ((y + yOff) % scale)) + ".png",
                       makeCallback(newCity, cityLights, cityLightsContext, x, y),
                       makeErrorCallback(newCity, cityLights));
                 }
@@ -1092,7 +1118,10 @@ SunLayer.prototype.initialize = function () {
         var img = document.createElement('img');
         img.onload = onload;
         img.onerror = onerror;
-        img.crossOrigin = "";
+        //if (uri.startsWith("http")) {
+        if (uri.lastIndexOf("http", 0) == 0) {
+          img.crossOrigin = "";
+        }
         img.src = uri;
         return img;
       }
@@ -1203,11 +1232,20 @@ SunLayer.prototype.initialize = function () {
 
         // translate to current view (vector from topLeft to 0,0)
         var offset = mapProjection.fromLatLngToPoint(this.getTopLeft());
-        translateMatrix(mapMatrix, -offset.x, -offset.y);
+        var rss = resolutionScale * scale;
+        translateMatrix(mapMatrix, -Math.floor(offset.x * rss) / rss, -Math.floor(offset.y * rss) / rss);
 
         // attach matrix value to 'mapMatrix' uniform in shader
         var matrixLoc = gl.getUniformLocation(pointProgram, 'mapMatrix');
         gl.uniformMatrix4fv(matrixLoc, false, mapMatrix);
+
+        //console.log("%f %f", 
+        //    (rawData[0] * mapMatrix[0] + mapMatrix[12]) * this.canvas.width, 
+        //    (rawData[1] * mapMatrix[5] + mapMatrix[13]) * this.canvas.height);
+
+        //console.log("%f %f", 
+        //    (rawData[2] * mapMatrix[0] + mapMatrix[12]) * this.canvas.width, 
+        //    (rawData[3] * mapMatrix[5] + mapMatrix[13]) * this.canvas.height);
 
         // draw!
         gl.drawArrays(gl.LINES, 0, point_count);

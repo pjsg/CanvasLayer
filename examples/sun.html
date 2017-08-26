@@ -16,7 +16,7 @@
     <script src="SunLayer.js"></script>
 
     <script>
-      var canvasLayer;
+      var sunLayer;
       var gl;
 
       var pointProgram;
@@ -71,6 +71,16 @@
   </head>
 
   <body>
+  <a id="downloadLnk" download="sunlayer.png">Download as image</a>
+
+  <script>
+  function download() {
+        var dt = sunLayer.canvas.toDataURL('image/png');
+        this.href = dt;
+  };
+  downloadLnk.addEventListener('click', download, false);
+  </script>
+  
     <div id="map-div"></div>
   </body>
 </html>
